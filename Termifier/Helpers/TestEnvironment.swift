@@ -1,0 +1,15 @@
+// TestEnvironment.swift
+// Termifier
+//
+// Shared test-host detection: a single source of truth for "is this
+// process running under XCTest", replacing two separate
+// NSClassFromString("XCTestCase") != nil checks
+// (AppDelegate.installGlobalEventTap and
+// NotificationManager.requestPermission) that had drifted to opposite
+// polarities.
+
+import Foundation
+
+enum TestEnvironment {
+    static let isTestHost = NSClassFromString("XCTestCase") != nil
+}

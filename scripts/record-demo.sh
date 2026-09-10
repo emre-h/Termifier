@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-# Drives the ~90-second Calyx product-demo XCUITest scenario
-# (CalyxUITests/DemoRecordingScenario.swift) so a human can screen-record
-# real Claude Code agents running in Calyx panes -- including a real
+# Drives the ~90-second Termifier product-demo XCUITest scenario
+# (TermifierUITests/DemoRecordingScenario.swift) so a human can screen-record
+# real Claude Code agents running in Termifier panes -- including a real
 # approval-banner interaction -- without operating the app by hand.
 #
-# Refuses to run alongside a live production Calyx.app: both instances
+# Refuses to run alongside a live production Termifier.app: both instances
 # would fight over the same real, fixed
-# ~/Library/Application Support/Calyx/agent-endpoint.json path (see
+# ~/Library/Application Support/Termifier/agent-endpoint.json path (see
 # CockpitApprovalE2ETests.swift's own header comment for why every
 # pane-side script always reads that exact, no-override-possible path),
 # so the demo's own "Enable AI Agent IPC" would clobber the production
@@ -21,7 +21,7 @@ set -euo pipefail
 # takes and wrecked this scenario's pacing/language -- see
 # DemoRecordingScenario.swift's own PRE-ROLL comment.)
 #
-# pkill/killall are prohibited in this repo: if a Calyx process is
+# pkill/killall are prohibited in this repo: if a Termifier process is
 # running, this asks the human to quit it rather than killing it out
 # from under them.
 
@@ -44,15 +44,15 @@ for arg in "$@"; do
     esac
 done
 
-if pgrep -x Calyx > /dev/null; then
-    echo "ERROR: a Calyx.app process is currently running."
+if pgrep -x Termifier > /dev/null; then
+    echo "ERROR: a Termifier.app process is currently running."
     echo
     echo "This demo needs sole use of the real"
-    echo "~/Library/Application Support/Calyx/agent-endpoint.json path, so"
-    echo "it cannot run alongside your normal Calyx session. This could"
+    echo "~/Library/Application Support/Termifier/agent-endpoint.json path, so"
+    echo "it cannot run alongside your normal Termifier session. This could"
     echo "also be a leftover demo-app instance from a crashed take (the"
     echo "demo build is a separate bundle ID, but the same process name,"
-    echo "\"Calyx\") -- quit it from the Dock or Activity Monitor."
+    echo "\"Termifier\") -- quit it from the Dock or Activity Monitor."
     echo
     echo "Then re-run this script."
     exit 1
@@ -71,11 +71,11 @@ fi
 # comments" always see the same, known-good material regardless of
 # whatever a previous run (or a previous demo take) left behind.
 
-WORKSPACE=/tmp/calyx-demo-workspace
+WORKSPACE=/tmp/termifier-demo-workspace
 rm -rf "$WORKSPACE"
 mkdir -p "$WORKSPACE/src" "$WORKSPACE/scripts"
 
-# BEAT 5's own completion sentinel (CalyxUITests/DemoRecordingScenario.swift)
+# BEAT 5's own completion sentinel (TermifierUITests/DemoRecordingScenario.swift)
 # lives at this fixed, top-level /tmp path -- NOT under $WORKSPACE, so the
 # rm -rf above never touches it. A stale sentinel left over from a
 # previous take would make BEAT 5's keeper loop see it as already-done
@@ -83,13 +83,13 @@ mkdir -p "$WORKSPACE/src" "$WORKSPACE/scripts"
 # This runs unconditionally here (both the normal and --skip-build paths
 # always execute this fixture-setup section before xcodebuild), so a
 # --skip-build retake still gets a clean sentinel.
-rm -f /tmp/calyx-demo-done
+rm -f /tmp/termifier-demo-done
 
 cat > "$WORKSPACE/README.md" << 'EOF'
-# Calyx Demo Workspace
+# Termifier Demo Workspace
 
 A small fixture repo used only by `scripts/record-demo.sh` to drive
-Calyx's scripted product-demo recording. Safe to delete -- this script
+Termifier's scripted product-demo recording. Safe to delete -- this script
 recreates it fresh on every run.
 EOF
 
@@ -189,8 +189,8 @@ chmod +x "$WORKSPACE/scripts/test.sh"
 (
     cd "$WORKSPACE"
     git init -q
-    git config user.email "demo@calyx.local"
-    git config user.name "Calyx Demo"
+    git config user.email "demo@termifier.local"
+    git config user.name "Termifier Demo"
 
     # -c commit.gpgsign=false: these are throwaway fixture commits, not
     # real work -- must not fail (and abort this whole script under
@@ -211,9 +211,9 @@ chmod +x "$WORKSPACE/scripts/test.sh"
 # --- Run the scenario -----------------------------------------------------
 
 echo
-echo "=== Calyx Demo Recording ==="
-echo "This launches an isolated Calyx.app instance (its own defaults"
-echo "domain and session dir -- not your real Calyx state) at a fixed"
+echo "=== Termifier Demo Recording ==="
+echo "This launches an isolated Termifier.app instance (its own defaults"
+echo "domain and session dir -- not your real Termifier state) at a fixed"
 echo "1440x900 window, builds a 2x2 pane split, starts real"
 echo "'claude --model sonnet' agents (pinned to an English-only system"
 echo "prompt) in three panes, and drives a short scripted product demo"
@@ -234,20 +234,20 @@ echo
 # closing endpoint-restore reminder below must still print in that case
 # -- it's most needed exactly when something went wrong.
 if [ "$SKIP_BUILD" -eq 1 ]; then
-    if CALYX_DEMO_RECORDING=1 xcodebuild test-without-building \
-        -project Calyx.xcodeproj \
-        -scheme CalyxUITests \
-        -only-testing:CalyxUITests/DemoRecordingScenario \
+    if TERMIFIER_DEMO_RECORDING=1 xcodebuild test-without-building \
+        -project Termifier.xcodeproj \
+        -scheme TermifierUITests \
+        -only-testing:TermifierUITests/DemoRecordingScenario \
         -arch arm64; then
         status=0
     else
         status=$?
     fi
 else
-    if CALYX_DEMO_RECORDING=1 xcodebuild test \
-        -project Calyx.xcodeproj \
-        -scheme CalyxUITests \
-        -only-testing:CalyxUITests/DemoRecordingScenario \
+    if TERMIFIER_DEMO_RECORDING=1 xcodebuild test \
+        -project Termifier.xcodeproj \
+        -scheme TermifierUITests \
+        -only-testing:TermifierUITests/DemoRecordingScenario \
         -arch arm64; then
         status=0
     else
@@ -256,7 +256,7 @@ else
 fi
 
 echo
-echo "Done. If you use the production Calyx again, re-run 'Enable AI Agent IPC' there to restore its endpoint file."
+echo "Done. If you use the production Termifier again, re-run 'Enable AI Agent IPC' there to restore its endpoint file."
 # Field-confirmed benign case for a non-zero status here: a long run
 # (BEAT 5's sentinel wait can stretch well past a minute) can outlast
 # XCTest's own finalization timer for its automatic screen-recording

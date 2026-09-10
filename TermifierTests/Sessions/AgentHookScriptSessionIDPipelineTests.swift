@@ -1,0 +1,151 @@
+//
+//  AgentHookScriptSessionIDPipelineTests.swift
+//  TermifierTests
+//
+//  Mock-less, end-to-end coverage
+//  mirroring AgentHookPipelineIntegrationTests.swift: a real
+//  termifier-agent-hook script, run as a real child Process, POSTing into a
+//  real running TermifierMCPServer. This isolates the one remaining gap in
+//  the persistent-session pane hook path: TermifierMCPServer's
+//  /agent-event routing already resolves a termifier-session ID via
+//  SessionSurfaceMap (see TermifierMCPServerSessionRoutingTests), and the
+//  script's header value already prefers TERMIFIER_SESSION_ID (see
+//  AgentHookScriptSessionIDTests) — but the script's own fail-open
+//  guard still only checks TERMIFIER_SURFACE_ID, so a pane that somehow has
+//  only TERMIFIER_SESSION_ID set exits before ever sending anything.
+//
+//  Coverage:
+//  - With only TERMIFIER_SESSION_ID set (TERMIFIER_SURFACE_ID left completely
+//    unset), the script must still exit 0 (fail-open is preserved
+//    either way) AND must actually attempt the POST, landing a
+//    registry entry keyed by the surface SessionSurfaceMap resolves
+//    the session ID to
+//
+
+import XCTest
+@testable import Termifier
+
+@MainActor
+final class AgentHookScriptSessionIDPipelineTests: XCTestCase {
+
+    // MARK: - Properties
+
+    private var server: TermifierMCPServer!
+    private var registry: AgentRegistry!
+    private var tempHome: String!
+    private var appSupportDir: String!
+    private var scriptPath: String!
+    private let testToken = "session-id-pipeline-test-token"
+
+    // MARK: - Lifecycle
+
+    override func setUp() async throws {
+        try await super.setUp()
+        tempHome = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString).path
+        appSupportDir = tempHome + "/Library/Application Support/Termifier"
+        try FileManager.default.createDirectory(atPath: appSupportDir, withIntermediateDirectories: true)
+
+        registry = AgentRegistry()
+        server = TermifierMCPServer(agentEndpointDirectory: appSupportDir)
+        server.agentRegistry = registry
+        // Isolated instance — never touch .shared, which other suites read.
+        server.sessionSurfaceMap = SessionSurfaceMap()
+        try server.start(token: testToken, preferredPort: Int.random(in: 49_152...65_000))
+
+        scriptPath = try AgentHookScript.install(toDirectory: appSupportDir + "/bin")
+    }
+
+    override func tearDown() {
+        server.stop()
+        server = nil
+        registry = nil
+        if let tempHome {
+            try? FileManager.default.removeItem(atPath: tempHome)
+        }
+        tempHome = nil
+        super.tearDown()
+    }
+
+    // MARK: - Helpers
+
+    /// Runs the installed `termifier-agent-hook` script as a real child
+    /// process (`/bin/sh <script>`), piping `stdinJSON` to its stdin.
+    /// `sessionID` (when non-nil) sets `TERMIFIER_SESSION_ID` alone —
+    /// `TERMIFIER_SURFACE_ID` is deliberately left completely unset, unlike
+    /// every real production invocation (which always has
+    /// TERMIFIER_SURFACE_ID set), specifically to isolate whether the
+    /// guard's own fail-open condition still depends on it.
+    @discardableResult
+    private func runHookScript(stdinJSON: String, sessionID: String?) throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = [scriptPath]
+
+        let inheritedPath = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/local/bin"
+        var env = ["HOME": tempHome!, "PATH": inheritedPath]
+        if let sessionID {
+            env["TERMIFIER_SESSION_ID"] = sessionID
+        }
+        process.environment = env
+
+        let stdinPipe = Pipe()
+        process.standardInput = stdinPipe
+
+        try process.run()
+        stdinPipe.fileHandleForWriting.write(Data(stdinJSON.utf8))
+        stdinPipe.fileHandleForWriting.closeFile()
+        process.waitUntilExit()
+        return process.terminationStatus
+    }
+
+    /// Polls `registry.entries[surfaceID]` for up to `timeout` seconds
+    /// — the script's own `curl` call is a real network round-trip, so
+    /// the registry update can land a few milliseconds after the child
+    /// process itself has already exited.
+    private func waitForEntry(surfaceID: UUID, timeout: TimeInterval = 2.0) async -> AgentEntry? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let entry = registry.entries[surfaceID] { return entry }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
+        return registry.entries[surfaceID]
+    }
+
+    // MARK: - Only TERMIFIER_SESSION_ID set
+
+    func test_realHookScript_onlyTermifierSessionIDSet_stillExitsZeroAndForwardsEvent() async throws {
+        let termifierSessionID = "01ARZ3NDEKTSV4RRFFQ69G5FAV"
+        let resolvedSurfaceID = UUID()
+        server.sessionSurfaceMap.register(sessionID: termifierSessionID, surfaceID: resolvedSurfaceID)
+
+        let stdin = """
+        {"session_id":"pipeline-session","cwd":"/Users/dev/pipeline-repo","hook_event_name":"SessionStart"}
+        """
+
+        let exitCode = try runHookScript(stdinJSON: stdin, sessionID: termifierSessionID)
+
+        XCTAssertEqual(exitCode, 0, "The hook script must always exit 0, with only TERMIFIER_SESSION_ID set or otherwise")
+
+        let entry = await waitForEntry(surfaceID: resolvedSurfaceID)
+        XCTAssertNotNil(entry,
+                        "With only TERMIFIER_SESSION_ID set, the script must still attempt the POST — the " +
+                        "current guard (which only checks TERMIFIER_SURFACE_ID) exits before ever sending " +
+                        "anything, so no entry lands under the resolved surface")
+        XCTAssertEqual(entry?.cwd, "/Users/dev/pipeline-repo")
+    }
+
+    // MARK: - Non-regression: both unset still exits 0 without forwarding
+
+    func test_realHookScript_neitherSurfaceIDNorSessionIDSet_exitsZeroWithoutForwarding() async throws {
+        let stdin = """
+        {"session_id":"orphan-session","cwd":"/Users/dev/repo","hook_event_name":"SessionStart"}
+        """
+
+        let exitCode = try runHookScript(stdinJSON: stdin, sessionID: nil)
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertTrue(registry.entries.isEmpty,
+                     "With neither TERMIFIER_SURFACE_ID nor TERMIFIER_SESSION_ID set, nothing must be forwarded")
+    }
+}

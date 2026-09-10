@@ -1,14 +1,14 @@
-# Calyx
+# Termifier
 
 **Run more coding agents without babysitting more terminals.**
 
-Calyx is a native macOS terminal for running and supervising coding agents (Claude Code, Codex, OpenCode, Hermes, Grok, and pi...) in parallel. It keeps every agent visible and controllable with one approval inbox, live status, persistent sessions, agent-readable command history, and inline diff review -- without replacing the terminal workflow you already use.
+Termifier is a native macOS terminal for running and supervising coding agents (Claude Code, Codex, OpenCode, Hermes, Grok, and pi...) in parallel. It keeps every agent visible and controllable with one approval inbox, live status, persistent sessions, agent-readable command history, and inline diff review -- without replacing the terminal workflow you already use.
 
-[Documentation](https://help.getcalyx.app) · [Latest release](https://github.com/yuuichieguchi/Calyx/releases/latest) · [MIT license](LICENSE)
+[Documentation](https://help.gettermifier.app) · [Latest release](https://github.com/yuuichieguchi/Termifier/releases/latest) · [MIT license](LICENSE)
 
 ## Demo
 
-Three Claude Code agents run in parallel while Calyx keeps approvals and command output in one control surface (36s):
+Three Claude Code agents run in parallel while Termifier keeps approvals and command output in one control surface (36s):
 
 https://github.com/user-attachments/assets/a04e1161-e296-4791-9b7c-3ef84d990089
 
@@ -17,17 +17,17 @@ https://github.com/user-attachments/assets/a04e1161-e296-4791-9b7c-3ef84d990089
 ### Homebrew
 
 ```bash
-brew install --cask yuuichieguchi/calyx/calyx
+brew install --cask yuuichieguchi/termifier/termifier
 ```
 
 ### Manual download
 
-1. Download `Calyx.zip` from the [latest release](https://github.com/yuuichieguchi/Calyx/releases/latest).
-2. Unzip it and move `Calyx.app` to `/Applications`.
+1. Download `Termifier.zip` from the [latest release](https://github.com/yuuichieguchi/Termifier/releases/latest).
+2. Unzip it and move `Termifier.app` to `/Applications`.
 
-Calyx requires macOS 26 Tahoe or later. Direct downloads update through Sparkle; Homebrew installations update with `brew upgrade`.
+Termifier requires macOS 26 Tahoe or later. Homebrew installations can be updated with `brew upgrade`.
 
-## Why Calyx
+## Why Termifier
 
 ### See which agent needs you
 
@@ -43,17 +43,17 @@ Inspect working changes and commit history in the Git sidebar, add comments to i
 
 ### Give agents a terminal they can understand
 
-Calyx exposes panes, commands, captured output, browser tabs, language servers, and peer agents through MCP and its bundled CLI. Agents can coordinate work, wait for commands to finish, and inspect results instead of relying on sleep timers or copied output.
+Termifier exposes panes, commands, captured output, browser tabs, language servers, and peer agents through MCP and its bundled CLI. Agents can coordinate work, wait for commands to finish, and inspect results instead of relying on sleep timers or copied output.
 
 ## Features
 
 ### Agent supervision
 
 - **Agents Sidebar** -- live status for Claude Code, Codex, OpenCode, Hermes, Grok, and pi, with every row named after its own pane (title, working directory, agent), unread badges, last-seen timestamps, and click-to-focus navigation
-- **Subagent Rows** -- a pane running subagents gains a count badge and a disclosure chevron that expands them as indented child rows, for the CLIs that report subagents (Claude Code, Codex, OpenCode, Grok); each row carries the child's state, and the child's current tool with the command, path, or URL that call is working on wherever its CLI reports one (Claude Code and Grok; Codex and OpenCode report lifecycle only). Children exist only while the CLI reports them, and a pane whose CLI reports no subagents at all (pi, Hermes, herdr) looks exactly as it always did. Because a CLI reads its hook configuration once at session start, subagent rows appear in sessions started after Calyx installs the hooks, not in one already running
+- **Subagent Rows** -- a pane running subagents gains a count badge and a disclosure chevron that expands them as indented child rows, for the CLIs that report subagents (Claude Code, Codex, OpenCode, Grok); each row carries the child's state, and the child's current tool with the command, path, or URL that call is working on wherever its CLI reports one (Claude Code and Grok; Codex and OpenCode report lifecycle only). Children exist only while the CLI reports them, and a pane whose CLI reports no subagents at all (pi, Hermes, herdr) looks exactly as it always did. Because a CLI reads its hook configuration once at session start, subagent rows appear in sessions started after Termifier installs the hooks, not in one already running
 - **Approval Inbox** -- one opt-in queue across every pane for Claude Code and Codex permission prompts, for the tool calls of always-approve Grok sessions, and for every pi tool call, shown in a notification-style panel with a primary action and an Options pull-down for every other choice (including Allow, Deny, and per-pane or global session-scoped approval), or an inline option list when the question allows several answers at once or carries a preview; Claude Code and Codex queue a request only where the CLI would have prompted you itself and fall back to the agent's own prompt, while an unanswered Grok or pi request is denied
 - **Approval Queue Navigation** -- inspect and decide pending requests in any order, with a preview menu on the position label for jumping straight to one, and automatic navigation to the nearest remaining request
-- **Dismiss** -- the panel's own × is offered only when the CLI's own prompt, or the calling MCP agent, can still decide the request without Calyx: it hands a Claude Code or Codex tool call back to that CLI's own confirmation prompt, or reports a no-decision result to a Calyx MCP tool's own caller. Grok and pi requests must be answered in Calyx -- its own decision is their only gate, so the × is disabled for them
+- **Dismiss** -- the panel's own × is offered only when the CLI's own prompt, or the calling MCP agent, can still decide the request without Termifier: it hands a Claude Code or Codex tool call back to that CLI's own confirmation prompt, or reports a no-decision result to a Termifier MCP tool's own caller. Grok and pi requests must be answered in Termifier -- its own decision is their only gate, so the × is disabled for them
 - **Agent Cockpit** -- MCP tools for listing, creating, and splitting panes; commands and keystrokes remain approval-gated unless auto-approve is enabled
 - **Command Log** -- structured commands, working directories, exit status, and captured output exposed to agents through MCP; known secret patterns are redacted before exposure
 
@@ -68,10 +68,10 @@ Calyx exposes panes, commands, captured output, browser tabs, language servers, 
 ### Sessions and remote work
 
 - **Persistent Sessions** -- opt-in daemon-backed terminals survive app quit and crashes, with a Session Browser, recovery flow, and optional on-disk history
-- **Remote Sessions** -- deploy `calyx-session` once to an SSH host from `~/.ssh/config`, then browse and reattach to remote persistent sessions
+- **Remote Sessions** -- deploy `termifier-session` once to an SSH host from `~/.ssh/config`, then browse and reattach to remote persistent sessions
 - **Agent Resume** -- offer to resume the agent CLI conversation associated with a reattached session
 - **Layout Restore** -- restore tabs, splits, and working directories on launch
-- **herdr Integration** -- browse and manage herdr workspaces as native split-pane tabs; herdr-hosted agents also appear in the Agents Sidebar, and a row bridged into a Calyx tab focuses that pane on click. Calyx watches for herdr instead of polling, so herdr started or installed after Calyx launched is picked up without a relaunch
+- **herdr Integration** -- browse and manage herdr workspaces as native split-pane tabs; herdr-hosted agents also appear in the Agents Sidebar, and a row bridged into a Termifier tab focuses that pane on click. Termifier watches for herdr instead of polling, so herdr started or installed after Termifier launched is picked up without a relaunch
 
 ### Terminal workspace
 
@@ -79,7 +79,7 @@ Calyx exposes panes, commands, captured output, browser tabs, language servers, 
 - **Tab Groups and Split Panes** -- color-coded collapsible groups, tab renaming and reordering, horizontal and vertical splits, directional focus, and split zoom
 - **Tab Context Menu** -- right-click or Ctrl+click a tab in the tab bar or sidebar to close it, close the other tabs or the tabs to its right in its group, or rename it, without switching to it
 - **Command Palette** -- search and run operations with `Cmd+Shift+P`
-- **Ghostty Compatibility** -- read `~/.config/ghostty/config`, hot-reload most settings, and bind Calyx operations through Ghostty keybind actions
+- **Ghostty Compatibility** -- read `~/.config/ghostty/config`, hot-reload most settings, and bind Termifier operations through Ghostty keybind actions
 - **Search and Navigation** -- highlighted scrollback search, native overlay scrollbar, smooth trackpad and mouse-wheel scrolling, and prompt-line cursor click-to-move
 - **Input Tools** -- shell-escaped drag and drop, multiline Compose Overlay, clipboard safety confirmation, and Secure Keyboard Entry
 - **Quick Terminal and Notifications** -- a system-wide drop-down terminal plus OSC 9/99/777 desktop notifications
@@ -88,7 +88,7 @@ Calyx exposes panes, commands, captured output, browser tabs, language servers, 
 ### Browser automation
 
 - **Browser Tabs** -- non-persistent WKWebView tabs alongside terminal tabs, limited to http and https with popups blocked
-- **Scriptable Browser** -- 25 bundled `calyx browser` commands for accessibility snapshots, clicking, filling, evaluation, screenshots, waits, and inspection
+- **Scriptable Browser** -- 25 bundled `termifier browser` commands for accessibility snapshots, clicking, filling, evaluation, screenshots, waits, and inspection
 
 ## Keyboard Shortcuts
 
@@ -156,7 +156,7 @@ Calyx exposes panes, commands, captured output, browser tabs, language servers, 
 
 ## IPC (Inter-Pane Communication)
 
-AI agent instances (Claude Code, Codex CLI, OpenCode, Hermes, Grok, pi) running in different Calyx tabs or panes can communicate with each other via a built-in MCP server.
+AI agent instances (Claude Code, Codex CLI, OpenCode, Hermes, Grok, pi) running in different Termifier tabs or panes can communicate with each other via a built-in MCP server.
 
 1. Open the command palette (`Cmd+Shift+P`) and run **Enable AI Agent IPC**
 2. Start agents (Claude Code, Codex, OpenCode, Hermes, Grok, or pi) in two or more terminal panes
@@ -164,55 +164,55 @@ AI agent instances (Claude Code, Codex CLI, OpenCode, Hermes, Grok, pi) running 
 
 Config is auto-written to `~/.claude.json`, `~/.codex/config.toml`, `~/.config/opencode/{opencode.json,AGENTS.md}`, `~/.hermes/config.yaml`, and `~/.grok/config.toml` when the respective tool is installed. Restart running agent instances to pick up the new MCP server. If you install a supported agent later, run **Reconfigure AI Agent IPC** to write its config and hooks. It never restarts a server that is already running, so agents already connected keep working.
 
-pi has no MCP client configuration file at all, so it reaches Calyx through a single TypeScript extension written to `~/.pi/agent/extensions/calyx.ts`, which pi auto-loads. It carries the whole integration: the sidebar row, the approval gate, and a `calyx` tool that bridges the MCP tools above (call it with `{"tool": "list"}` to enumerate them). A pi started outside Calyx, or inside a herdr pane, registers nothing.
+pi has no MCP client configuration file at all, so it reaches Termifier through a single TypeScript extension written to `~/.pi/agent/extensions/termifier.ts`, which pi auto-loads. It carries the whole integration: the sidebar row, the approval gate, and a `termifier` tool that bridges the MCP tools above (call it with `{"tool": "list"}` to enumerate them). A pi started outside Termifier, or inside a herdr pane, registers nothing.
 
 Available MCP tools: `register_peer`, `list_peers`, `send_message`, `broadcast`, `receive_messages`, `get_peer_status`. `receive_messages` deletes each message from the inbox as it returns it, so a message is only ever delivered once.
 
-The same server exposes cockpit tools that control Calyx (`pane_list`, `pane_split`, `tab_create`; approval-gated: `pane_run`, `pane_send_keys`, `palette_execute`) and command-log tools (`terminal_list_commands`, `terminal_read_output`, `terminal_await_command`; requires the zsh/fish shell integration, installed automatically while Settings -> Agents -> **Track shell commands** is on). Command text and output are redacted for known secret patterns (tokens, passwords, API keys, JWTs) before agents can read them; output still being redacted reports `{"output_pending": true}` from `terminal_read_output` until it finishes.
+The same server exposes cockpit tools that control Termifier (`pane_list`, `pane_split`, `tab_create`; approval-gated: `pane_run`, `pane_send_keys`, `palette_execute`) and command-log tools (`terminal_list_commands`, `terminal_read_output`, `terminal_await_command`; requires the zsh/fish shell integration, installed automatically while Settings -> Agents -> **Track shell commands** is on). Command text and output are redacted for known secret patterns (tokens, passwords, API keys, JWTs) before agents can read them; output still being redacted reports `{"output_pending": true}` from `terminal_read_output` until it finishes.
 
 To disable, open the command palette and run **Disable AI Agent IPC**.
 
 ## LSP Proxy MCP
 
-Calyx can expose language server features to CLI AI agents through the same MCP server used by AI Agent IPC. Agents can call tools such as `lsp_hover`, `lsp_definition`, `lsp_references`, `lsp_rename`, and `lsp_diagnostics` to get symbol-aware results from TypeScript, Python, Rust, Go, Swift, and other language servers instead of relying on grep.
+Termifier can expose language server features to CLI AI agents through the same MCP server used by AI Agent IPC. Agents can call tools such as `lsp_hover`, `lsp_definition`, `lsp_references`, `lsp_rename`, and `lsp_diagnostics` to get symbol-aware results from TypeScript, Python, Rust, Go, Swift, and other language servers instead of relying on grep.
 
 ### Setup
 
 1. Open the command palette (`Cmd+Shift+P`) and run **Enable AI Agent IPC**.
-2. Restart or reconnect your AI agent so it picks up the `calyx-ipc` MCP server.
+2. Restart or reconnect your AI agent so it picks up the `termifier-ipc` MCP server.
 3. Optional: open Settings -> **LSP** and enable auto-install for missing language servers.
 
-Calyx keeps language servers running in the background, syncs file changes from disk, and starts the right server on the first `lsp_*` call for a workspace.
+Termifier keeps language servers running in the background, syncs file changes from disk, and starts the right server on the first `lsp_*` call for a workspace.
 
 ## Browser Scripting
 
 Agents can programmatically control browser tabs via 25 CLI commands, similar to cmux's browser automation.
 
 1. Open a browser tab and navigate to a page
-2. Use `calyx browser` commands from any terminal tab — no enable step needed
+2. Use `termifier browser` commands from any terminal tab — no enable step needed
 
 ### CLI Commands
 
 ```bash
-calyx browser list                         # List all browser tabs
-calyx browser snapshot --tab-id <id>       # Accessibility tree with element refs
-calyx browser get-text h1 --tab-id <id>    # Get element text
-calyx browser click a --tab-id <id>        # Click element
-calyx browser fill input --value "text"    # Fill input field
-calyx browser eval 'document.title'        # Execute JavaScript
-calyx browser screenshot                   # Capture to temp file
-calyx browser wait --selector ".loaded"    # Wait for condition
-calyx browser get-attribute a href         # Get element attribute
-calyx browser get-links                    # List all links (JSON)
-calyx browser get-inputs                   # List all form inputs (JSON)
-calyx browser is-visible '#sidebar'        # Check element visibility
-calyx browser hover '#menu-item'           # Hover over element
-calyx browser scroll down --amount 500     # Scroll page/element
+termifier browser list                         # List all browser tabs
+termifier browser snapshot --tab-id <id>       # Accessibility tree with element refs
+termifier browser get-text h1 --tab-id <id>    # Get element text
+termifier browser click a --tab-id <id>        # Click element
+termifier browser fill input --value "text"    # Fill input field
+termifier browser eval 'document.title'        # Execute JavaScript
+termifier browser screenshot                   # Capture to temp file
+termifier browser wait --selector ".loaded"    # Wait for condition
+termifier browser get-attribute a href         # Get element attribute
+termifier browser get-links                    # List all links (JSON)
+termifier browser get-inputs                   # List all form inputs (JSON)
+termifier browser is-visible '#sidebar'        # Check element visibility
+termifier browser hover '#menu-item'           # Hover over element
+termifier browser scroll down --amount 500     # Scroll page/element
 ```
 
-The `calyx` CLI binary is bundled inside `Calyx.app/Contents/Resources/bin/`. To install it to your PATH, run **Install CLI to PATH** from the command palette.
+The `termifier` CLI binary is bundled inside `Termifier.app/Contents/Resources/bin/`. To install it to your PATH, run **Install CLI to PATH** from the command palette.
 
-The browser server starts automatically with the app and listens on `localhost:41840`. Connection info is written to `~/.config/calyx/browser.json`.
+The browser server starts automatically with the app and listens on `localhost:41840`. Connection info is written to `~/.config/termifier/browser.json`.
 
 ## Building from Source
 
@@ -227,8 +227,8 @@ The browser server starts automatically with the app and listens on `localhost:4
 
 ```bash
 # Clone with submodules
-git clone --recursive https://github.com/yuuichieguchi/Calyx.git
-cd Calyx
+git clone --recursive https://github.com/yuuichieguchi/Termifier.git
+cd Termifier
 
 # Build libghostty xcframework
 cd ghostty
@@ -240,12 +240,12 @@ cp -R ghostty/macos/GhosttyKit.xcframework .
 
 # Generate Xcode project & build
 xcodegen generate
-xcodebuild -project Calyx.xcodeproj -scheme Calyx -configuration Debug build
+xcodebuild -project Termifier.xcodeproj -scheme Termifier -configuration Debug build
 ```
 
 ## Architecture
 
-Calyx uses AppKit for window, tab, and focus management with SwiftUI for view rendering, bridged via `NSHostingView`.
+Termifier uses AppKit for window, tab, and focus management with SwiftUI for view rendering, bridged via `NSHostingView`.
 
 - All ghostty C API calls go through the `GhosttyFFI` enum
 - `@MainActor` enforced on all UI and model code
@@ -260,7 +260,7 @@ Bug reports and feature ideas are welcome as issues. External pull requests are 
 ## Known Limitations
 
 - **Cursor click-to-move on full-width text** -- cursor placement may be offset on Japanese/full-width text lines because Ghostty's cursor-click-to-move internally translates clicks into arrow-key steps over terminal cells.
-- **Calyx-managed config keys** -- `background-opacity`, `background-blur`, `background-opacity-cells`, `font-codepoint-map`, `foreground` are overridden by Calyx for Glass UI. `background-opacity-cells` is set from Settings > Appearance > Glass instead. See Settings > Ghostty Config Compatibility for the full list.
+- **Termifier-managed config keys** -- `background-opacity`, `background-blur`, `background-opacity-cells`, `font-codepoint-map`, `foreground` are overridden by Termifier for Glass UI. `background-opacity-cells` is set from Settings > Appearance > Glass instead. See Settings > Ghostty Config Compatibility for the full list.
 
 ## License
 

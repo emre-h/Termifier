@@ -2,10 +2,10 @@
 set -euo pipefail
 
 VERSION=$(grep 'MARKETING_VERSION' project.yml | grep -v '\$(' | sed 's/.*"\(.*\)"/\1/')
-APP_PATH="/tmp/CalyxRelease/Build/Products/Release/Calyx.app"
-ZIP_PATH="/tmp/Calyx.zip"
+APP_PATH="/tmp/TermifierRelease/Build/Products/Release/Termifier.app"
+ZIP_PATH="/tmp/Termifier.zip"
 
-echo "=== Calyx Release v$VERSION ==="
+echo "=== Termifier Release v$VERSION ==="
 
 # 1. Check required env vars
 echo "Checking required environment variables..."
@@ -19,100 +19,46 @@ echo "Generating Xcode project..."
 xcodegen generate
 echo "Xcode project generated."
 
-# 2.5. Build calyx-session (host binary + Linux remote payloads).
+# 2.5. Build termifier-session (host binary + Linux remote payloads).
 # The "Bundle Session Daemon" / "Bundle Remote Session Binaries"
 # postBuildScripts in project.yml hard-fail a Release build when any of
 # these are missing, so this must run before xcodebuild.
-echo "Building calyx-session (host + Linux remote targets)..."
+echo "Building termifier-session (host + Linux remote targets)..."
 scripts/build-session.sh --all
-echo "calyx-session build complete."
+echo "termifier-session build complete."
 
 # 3. Build
-echo "Building Calyx (Release)..."
+echo "Building Termifier (Release)..."
 xcodebuild \
-  -project Calyx.xcodeproj \
-  -scheme Calyx \
+  -project Termifier.xcodeproj \
+  -scheme Termifier \
   -configuration Release \
   ARCHS=arm64 \
   CODE_SIGN_IDENTITY="Developer ID Application: Yuuichi Eguchi (PQQBSRKD72)" \
   CODE_SIGN_STYLE=Manual \
   DEVELOPMENT_TEAM=PQQBSRKD72 \
-  -derivedDataPath /tmp/CalyxRelease \
+  -derivedDataPath /tmp/TermifierRelease \
   clean build
 echo "Build succeeded."
 
-# 3.5a. Validate Sparkle.framework structure
-echo "Validating Sparkle.framework structure..."
 SIGN_IDENTITY="Developer ID Application: Yuuichi Eguchi (PQQBSRKD72)"
-SPARKLE_FW="$APP_PATH/Contents/Frameworks/Sparkle.framework"
-
-if [ ! -d "$SPARKLE_FW" ]; then
-  echo "ERROR: Sparkle.framework not found at $SPARKLE_FW"
-  exit 1
-fi
-
-if [ ! -L "$SPARKLE_FW/Versions/Current" ]; then
-  echo "ERROR: Sparkle.framework/Versions/Current symlink missing"
-  exit 1
-fi
-SPARKLE_VER="$SPARKLE_FW/Versions/$(readlink "$SPARKLE_FW/Versions/Current")"
-if [ ! -d "$SPARKLE_VER" ]; then
-  echo "ERROR: Active Sparkle version directory not found: $SPARKLE_VER"
-  exit 1
-fi
-echo "Sparkle.framework structure validated (version: $(basename "$SPARKLE_VER"))."
-
-# 3.5b. Check for unexpected entries in framework root
-echo "Checking Sparkle.framework root for unexpected entries..."
-ALLOWED_ROOT="Versions Sparkle Resources Headers Modules Autoupdate Updater.app XPCServices"
-for entry in "$SPARKLE_FW"/*; do
-  name=$(basename "$entry")
-  if ! echo "$ALLOWED_ROOT" | grep -qw "$name"; then
-    echo "ERROR: Unexpected entry in Sparkle.framework root: $name"
-    echo "Update the whitelist in release.sh if this is expected."
-    exit 1
-  fi
-done
-echo "No unexpected entries found."
-
-# 3.5c. Inside-out re-signing of Sparkle framework
-echo "Signing Sparkle framework (inside-out)..."
-
-# 1. Sign XPC service bundles (innermost)
-for xpc in "$SPARKLE_VER"/XPCServices/*.xpc; do
-  [ -d "$xpc" ] && codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime "$xpc"
-done
-
-# 2. Sign nested app bundles
-for app in "$SPARKLE_VER"/*.app; do
-  [ -d "$app" ] && codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime "$app"
-done
-
-# 3. Sign standalone executables (not inside bundles)
-for bin in "$SPARKLE_VER"/Autoupdate "$SPARKLE_VER"/Sparkle; do
-  [ -f "$bin" ] && codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime "$bin"
-done
-
-# 4. Sign the framework itself
-codesign --force --sign "$SIGN_IDENTITY" --timestamp "$SPARKLE_FW"
-
-# 4.5. Sign the bundled calyx-session host binary. cargo produces it
+# 4. Sign the bundled termifier-session host binary. cargo produces it
 # only linker-adhoc-signed, and the outer app's non---deep signature
 # does not re-sign nested Mach-O files, so notarization needs this
 # explicit Developer ID + hardened runtime + timestamp signature.
 # The Linux payloads under Resources/session-remote/ are ELF, not
 # Mach-O: codesign cannot sign them and seals them as plain resources.
-SESSION_HOST_BIN="$APP_PATH/Contents/Resources/bin/calyx-session"
+SESSION_HOST_BIN="$APP_PATH/Contents/Resources/bin/termifier-session"
 if [ ! -f "$SESSION_HOST_BIN" ]; then
-  echo "ERROR: bundled calyx-session not found at $SESSION_HOST_BIN"
+  echo "ERROR: bundled termifier-session not found at $SESSION_HOST_BIN"
   exit 1
 fi
 codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime "$SESSION_HOST_BIN"
 
-# 5. Re-sign the outer app (inner re-signing invalidates outer seal)
+# 5. Sign the outer app after signing nested Mach-O binaries.
 codesign --force --sign "$SIGN_IDENTITY" --timestamp --options runtime \
-  --entitlements Calyx/Calyx.entitlements "$APP_PATH"
-echo "Sparkle framework and app signed."
+  --entitlements Termifier/Termifier.entitlements "$APP_PATH"
+echo "Bundled binaries and app signed."
 
 # 3.5d. Pre-notarization verification gate (spctl skipped — requires notarization)
 echo "Verifying code signature..."
@@ -153,27 +99,10 @@ echo "Final zip created at $ZIP_PATH."
 echo "Verifying final distributed artifact..."
 VERIFY_DIR=$(mktemp -d)
 ditto -x -k "$ZIP_PATH" "$VERIFY_DIR"
-codesign --verify --deep --strict "$VERIFY_DIR/Calyx.app"
-spctl --assess --type exec "$VERIFY_DIR/Calyx.app"
+codesign --verify --deep --strict "$VERIFY_DIR/Termifier.app"
+spctl --assess --type exec "$VERIFY_DIR/Termifier.app"
 rm -rf "$VERIFY_DIR"
 echo "Distributed artifact verification passed."
-
-# 7.5. Sparkle EdDSA signing (must be AFTER re-zip so signature matches the final artifact)
-echo "Signing final zip with Sparkle EdDSA..."
-# Resolve Sparkle tools from THIS build's DerivedData. A find over
-# ~/Library/Developer/Xcode/DerivedData is order-dependent (APFS directory
-# enumeration reshuffles as sibling dirs come and go) and once matched the
-# legacy DSA *shell script* (Sparkle/bin/old_dsa_scripts/sign_update), which
-# blocks on stdin when called without a key file.
-SPARKLE_BIN="/tmp/CalyxRelease/SourcePackages/artifacts/sparkle/Sparkle/bin"
-SPARKLE_SIGN="$SPARKLE_BIN/sign_update"
-if [ ! -x "$SPARKLE_SIGN" ]; then
-  echo "ERROR: sign_update not found at $SPARKLE_SIGN."
-  echo "The release build should have resolved the Sparkle artifact bundle there."
-  exit 1
-fi
-SPARKLE_SIG=$("$SPARKLE_SIGN" "$ZIP_PATH")
-echo "Sparkle signature: $SPARKLE_SIG"
 
 # 8. Push to remote
 echo "Pushing to origin main..."
@@ -192,45 +121,8 @@ fi
 RELEASE_BODY="## What's Changed
 $NOTES"
 gh release create "v$VERSION" "$ZIP_PATH" \
-  --title "Calyx v$VERSION" \
+  --title "Termifier v$VERSION" \
   --notes "$RELEASE_BODY"
 echo "GitHub release v$VERSION created."
-
-# 10. Generate and push appcast
-echo "Generating appcast..."
-GENERATE_APPCAST="$SPARKLE_BIN/generate_appcast"
-if [ -x "$GENERATE_APPCAST" ]; then
-  APPCAST_DIR="/tmp/CalyxAppcast"
-  mkdir -p "$APPCAST_DIR"
-  cp "$ZIP_PATH" "$APPCAST_DIR/"
-  "$GENERATE_APPCAST" \
-    --download-url-prefix "https://github.com/yuuichieguchi/Calyx/releases/download/v$VERSION/" \
-    "$APPCAST_DIR"
-
-  # Push appcast to gh-pages
-  if [ -f "$APPCAST_DIR/appcast.xml" ]; then
-    REPO_DIR=$(pwd)
-    TMPDIR=$(mktemp -d)
-    git clone --branch gh-pages --single-branch "$(git remote get-url origin)" "$TMPDIR" 2>/dev/null || {
-      git clone "$(git remote get-url origin)" "$TMPDIR"
-      cd "$TMPDIR"
-      git checkout --orphan gh-pages
-      git rm -rf . 2>/dev/null || true
-      cd "$REPO_DIR"
-    }
-    cp "$APPCAST_DIR/appcast.xml" "$TMPDIR/appcast.xml"
-    cd "$TMPDIR"
-    git add appcast.xml
-    git commit -m "Update appcast for v$VERSION" || true
-    git push origin gh-pages || echo "Warning: Failed to push appcast. Push manually."
-    cd "$REPO_DIR"
-    rm -rf "$TMPDIR"
-  fi
-  rm -rf "$APPCAST_DIR"
-else
-  echo "ERROR: generate_appcast not found. Cannot generate appcast."
-  echo "Build Sparkle tools first: swift build -c release --package-path path/to/Sparkle"
-  exit 1
-fi
 
 echo "=== Release v$VERSION complete ==="

@@ -1,0 +1,192 @@
+// PaneCLIExec.swift
+// TermifierUITests
+//
+// Shared pane-command-injection helpers for the E2E suites added
+// alongside SessionPersistenceE2ETests (E2E-1/E2E-2/E2E-3). Mirrors
+// `BrowserScriptingUITests.terminalExec`'s already-established
+// pattern (a real command run by a live pane, not a `Process` spawned
+// by the test runner) rather than inventing a new one; kept here
+// instead of promoted onto `TermifierUITestCase` itself or merged into
+// `BrowserScriptingUITests`'s own private copy, since both of those
+// files are outside this task's assigned scope.
+//
+// The command itself is never pasted or typed directly. It is written
+// (via a throwing `try`, never `try?`, so a write failure surfaces as
+// an `XCTFail` instead of a silent no-op and a timeout) to a script
+// file under `FileManager.default.temporaryDirectory` -- the TEST
+// RUNNER's own sandboxed container tmp, which the runner process can
+// write to (unlike `/tmp`, which the sandboxed runner cannot write to
+// -- field-verified: a `try?` write to `/tmp` failed silently there)
+// and which the pane's unsandboxed shell can still read by its
+// absolute path. Only the short line `sh <scriptPath>` is entered
+// into the pane, and it is entered via `app.typeText`, not a paste:
+// a paste long/slow enough that it is still being delivered when
+// Return arrives lands that Return inside the bracketed paste, so the
+// command is never executed (field-verified: even the short `sh
+// '<path>'` line, entered as a paste, was swallowed this way on a
+// loaded machine). `app.typeText` delivers keystrokes in order with
+// no bracketed-paste framing, so Return always arrives after the text
+// it terminates.
+//
+// The typed line carries NO quote character around `<scriptPath>`: a
+// typed `'` is delivered by pressing whatever physical key produces
+// `'` under the OS's ACTIVE keyboard layout at the moment `typeText`
+// runs, not a fixed keycode, so under a non-US layout it is delivered
+// as a different character entirely (field-verified: `sh '<path>`
+// arrived in the pane as `sh ;Su/Users/...`, and the mangled `sh`
+// argument then started an interactive shell instead of running the
+// script). The script path is always composed only from
+// `FileManager.default.temporaryDirectory` plus filename characters
+// this file itself controls (`termifier-e2e`, digits, `-`, `_`, `.`, `/`),
+// so it never needs quoting for spaces or shell metacharacters --
+// every path passed to `typePaneScript` below is asserted (via
+// `XCTFail`, not `precondition`, so a violation reports as a normal
+// test failure rather than aborting the process) to contain only
+// `[A-Za-z0-9/._-]` before it is typed, so a future caller can never
+// reintroduce the need for quoting without that assertion firing.
+//
+// Rationale for running a command in a live pane at all, instead of
+// spawning `termifier-session` as an out-of-process `Process` from inside
+// the test runner: `SessionPersistenceE2ETests.swift`'s header
+// comment establishes that the `TermifierUITests` runner is itself
+// App-Sandboxed and cannot open a new unix-domain-socket connection to
+// the daemon, so a `termifier-session` child spawned directly by the
+// runner can never reach it. Routing the same CLI calls through a
+// real pane (an already-running, unsandboxed child process of
+// Termifier.app) is the same workaround `BrowserScriptingUITests` already
+// uses for the `termifier` CLI.
+//
+// CRITICAL, field-verified constraint (found running this suite, not
+// assumed): a command pasted into a pane does NOT inherit Termifier.app's
+// own `HOME` override. Ghostty execs every surface's command via
+// `login -flp <system-username> ...` (confirmed via `ps aux` on a live
+// run), which resets the shell's environment against the REAL system
+// user, independent of whatever `HOME` `app.launchEnvironment` set on
+// Termifier.app's own process. A bare `termifier-session <subcommand>` typed
+// into a pane therefore falls back to resolving `$HOME` fresh inside
+// that reset shell -- the developer's REAL home, not this test's
+// isolated one -- and silently operates against the real daemon
+// instead. `SessionCommandSynthesizer.attachCommand`'s own doc comment
+// (Termifier/Features/Sessions/SessionCommandSynthesizer.swift:74-140)
+// independently confirms this exact failure mode was already
+// field-verified for Termifier's OWN internal session commands, which is
+// why that function no longer relies on an env override and instead
+// bakes explicit `--runtime-dir`/`--state-dir` flags into the command
+// string at Swift level before ghostty ever execs it. Every pane
+// command this suite issues MUST do the same -- see
+// `termifierSessionRootFlags(homeDir:)` below -- never a bare
+// `termifier-session <subcommand>` with no flags.
+import XCTest
+
+extension TermifierUITestCase {
+
+    /// Path to a pre-built `termifier-session` binary, resolved the same
+    /// way `SessionPersistenceE2ETests` resolves it: from the
+    /// `TERMIFIER_SESSION_BIN` environment variable this test process
+    /// itself was launched with (supplied by the `/e2e-test` skill
+    /// invocation, or a `cargo build --release` step run ahead of the
+    /// UI test bundle -- a test-runner-phase concern, not this file's).
+    /// Read here (the TEST RUNNER's own environment) so a caller can
+    /// interpolate it into a command run in a pane. Unlike the
+    /// binary PATH itself (a fixed location, unaffected by which HOME
+    /// resolves), the session ROOT a pane-executed command targets is
+    /// NOT safe to leave implicit -- see this file's header and
+    /// `termifierSessionRootFlags(homeDir:)`.
+    static var builtSessionBinaryPath: String {
+        ProcessInfo.processInfo.environment["TERMIFIER_SESSION_BIN"] ?? ""
+    }
+
+    /// `--runtime-dir <homeDir>/.termifier/run --state-dir <homeDir>/.termifier/
+    /// state`, matching `SessionCommandSynthesizer.attachCommand`'s own
+    /// composed paths exactly (`<root>/.termifier/{run,state}`). MUST be
+    /// appended to every `termifier-session` invocation run in a pane
+    /// (see this file's header) so it resolves against this test's own
+    /// isolated `homeDir` regardless of what `login` resets the pane's
+    /// shell environment to.
+    func termifierSessionRootFlags(homeDir: String) -> String {
+        "--runtime-dir \(homeDir)/.termifier/run --state-dir \(homeDir)/.termifier/state"
+    }
+
+    /// Types `sh <scriptPath>\n` into the frontmost pane, with no
+    /// quoting around `scriptPath` (see this file's header for why a
+    /// typed quote character is layout-dependent and must never be
+    /// used). Fails the test via `XCTFail` -- without typing anything
+    /// -- if `scriptPath` contains a space or any character outside
+    /// `[A-Za-z0-9/._-]`, since such a path would require quoting this
+    /// function does not perform.
+    private func typePaneScript(_ scriptPath: String) {
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789/._-")
+        guard scriptPath.unicodeScalars.allSatisfy(allowed.contains) else {
+            XCTFail("pane script path contains a character requiring quoting: \(scriptPath)")
+            return
+        }
+        app.typeText("sh \(scriptPath)\n")
+    }
+
+    /// Writes `command` (with its stdout+stderr redirected to a fresh
+    /// `/tmp` output file the pane's shell -- unsandboxed -- can write
+    /// to and this sandboxed runner can still read) to a script file
+    /// under the runner's own container tmp (see this file's header),
+    /// types `sh <scriptPath>` followed by Return into the frontmost
+    /// pane (via `typePaneScript`, no quoting), and polls the output
+    /// file until it has content
+    /// (or a bounded number of attempts elapse), returning the trimmed
+    /// content. Mirrors `BrowserScriptingUITests.terminalExec` exactly;
+    /// kept as a near-duplicate rather than a shared call so neither
+    /// file depends on the other.
+    func paneExec(_ command: String, counter: inout Int, timeoutAttempts: Int = 20) -> String {
+        counter += 1
+        let pid = ProcessInfo.processInfo.processIdentifier
+        let outFile = "/tmp/termifier-e2e-\(pid)-\(counter).txt"
+        let scriptFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("termifier-e2e-\(pid)-\(counter).sh").path
+        try? FileManager.default.removeItem(atPath: outFile)
+        do {
+            try "\(command) > \(outFile) 2>&1\n".write(toFile: scriptFile, atomically: true, encoding: .utf8)
+        } catch {
+            XCTFail("failed to write pane script \(scriptFile): \(error)")
+        }
+
+        Thread.sleep(forTimeInterval: 1)
+        typePaneScript(scriptFile)
+
+        for _ in 0..<timeoutAttempts {
+            Thread.sleep(forTimeInterval: 0.5)
+            if FileManager.default.fileExists(atPath: outFile),
+               let content = try? String(contentsOfFile: outFile, encoding: .utf8),
+               !content.isEmpty {
+                return content.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+        return (try? String(contentsOfFile: outFile, encoding: .utf8))?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? "(no output)"
+    }
+
+    /// Types `sh <scriptPath>` followed by Return into the frontmost
+    /// pane (via `typePaneScript`, no quoting), like `paneExec`, but
+    /// does NOT redirect output to a file
+    /// or wait for one to appear -- for injecting a command whose own
+    /// output this caller doesn't need to read back (e.g. a
+    /// long-running foreground command used only to keep a pane "busy",
+    /// or a fire-and-forget administrative command whose effect is
+    /// verified through the daemon ledger instead). Unlike `paneExec`,
+    /// this never blocks waiting on the command to produce output, so
+    /// it is safe to use for a command that runs indefinitely. Since
+    /// this function takes no counter parameter (unlike `paneExec`),
+    /// the script filename is disambiguated with a UUID rather than a
+    /// shared mutable counter (which would be concurrency-unsafe
+    /// global state).
+    func panePasteAndReturn(_ command: String) {
+        let scriptFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("termifier-e2e-\(ProcessInfo.processInfo.processIdentifier)-cmd-\(UUID().uuidString).sh")
+            .path
+        do {
+            try "\(command)\n".write(toFile: scriptFile, atomically: true, encoding: .utf8)
+        } catch {
+            XCTFail("failed to write pane script \(scriptFile): \(error)")
+        }
+
+        Thread.sleep(forTimeInterval: 1)
+        typePaneScript(scriptFile)
+    }
+}

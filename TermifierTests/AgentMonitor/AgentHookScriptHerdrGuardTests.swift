@@ -1,0 +1,233 @@
+//
+//  AgentHookScriptHerdrGuardTests.swift
+//  TermifierTests
+//
+//  Coverage for the herdr-environment guard AgentHookScript.scriptBody
+//  (termifier-agent-hook) carries. Running a herdr server from inside a
+//  Termifier pane's shell means every shell herdr itself spawns can inherit
+//  that pane's TERMIFIER_SURFACE_ID; without a guard, Claude Code's hook
+//  running INSIDE a herdr-managed pane would POST to /agent-event under
+//  that stale, misattributed surface, corrupting the .hooks
+//  authoritative log and misrouting approvals. The fix: termifier-agent-hook
+//  exits 0 WITHOUT posting whenever HERDR_PANE_ID is set and non-empty,
+//  mirroring the script's own existing TERMIFIER_SURFACE_ID/TERMIFIER_SESSION_ID
+//  early-exit guard.
+//
+//  HERDR_PANE_ID specifically -- not any HERDR_*-prefixed variable name --
+//  is the guard's condition: herdr sets several HERDR_*-prefixed
+//  variables inside its panes (e.g. HERDR_SOCKET_PATH, HERDR_TAB_ID,
+//  HERDR_WORKSPACE_ID, HERDR_ENV), but only HERDR_PANE_ID reliably means
+//  "this shell is running inside a herdr-managed pane". The others,
+//  HERDR_SOCKET_PATH in particular, are user-facing configuration a
+//  person may export in their own shell profile (to select a session by
+//  default) from inside an ORDINARY Termifier pane that herdr never touched
+//  at all -- an implementation that suppresses on any HERDR_-prefixed
+//  name would silently lose agent monitoring for that pane the moment
+//  the user exports it, which is exactly the regression this file's
+//  HERDR_SOCKET_PATH-alone and HERDR_ENV-alone tests below pin against.
+//
+//  Why a fake `curl` on PATH instead of AgentHookPipelineIntegrationTests'
+//  own real-TermifierMCPServer-plus-AgentRegistry pipeline style: every
+//  negative assertion here is about curl never running. curl runs in
+//  the script's own foreground (no trailing `&`), so
+//  `process.waitUntilExit()` already guarantees the fake curl has
+//  already run-or-not by the time this file reads its record file --
+//  no server lifecycle, no @MainActor, and no polling-with-timeout
+//  needed on every green run forever the way waiting out a real
+//  network round trip to prove ABSENCE would require.
+//
+//  Coverage:
+//  - Baseline sanity: TERMIFIER_SURFACE_ID set, no HERDR_* variable -> curl
+//    IS invoked exactly once (proves the fake-curl harness itself
+//    works, so the zero-invocation assertions below aren't vacuous)
+//  - TERMIFIER_SURFACE_ID set + HERDR_PANE_ID set to a non-empty value ->
+//    exit 0, curl NEVER invoked
+//  - TERMIFIER_SESSION_ID (not TERMIFIER_SURFACE_ID) set + HERDR_PANE_ID set ->
+//    exit 0, curl NEVER invoked (the guard must apply regardless of
+//    which TERMIFIER_* variable is what's actually set -- a real
+//    persistent-session pane shape, see AgentHookScriptSessionIDPipelineTests)
+//  - HERDR_PANE_ID set but EMPTY -> curl IS still invoked (the
+//    condition is "set AND non-empty", not merely "the name is present
+//    in the environment")
+//  - TERMIFIER_SURFACE_ID set + HERDR_SOCKET_PATH set, HERDR_PANE_ID absent
+//    -> curl IS still invoked (an ordinary Termifier pane whose user
+//    exported HERDR_SOCKET_PATH in their shell profile must keep normal
+//    agent monitoring)
+//  - TERMIFIER_SURFACE_ID set + HERDR_ENV set, HERDR_PANE_ID absent -> curl
+//    IS still invoked (same principle, a second herdr-set variable that
+//    is not the guard's own signal)
+//  - Residual regression guards: HERDRX_FOO (a name that merely starts
+//    with the letters HERDR) and an unrelated variable whose VALUE
+//    contains an embedded newline followed by text shaped like a
+//    HERDR_PANE_ID assignment must NEVER trip the guard either -- curl
+//    IS still invoked in both cases
+//
+
+import XCTest
+@testable import Termifier
+
+final class AgentHookScriptHerdrGuardTests: XCTestCase {
+
+    // MARK: - Properties
+
+    private var fixture: FakeCurlScriptFixture!
+    private var recordPath: String!
+
+    // MARK: - Lifecycle
+
+    override func setUp() {
+        super.setUp()
+        fixture = try! makeFakeCurlScriptFixture(
+            port: 41_830, token: "herdr-guard-test-token",
+            install: AgentHookScript.install(toDirectory:)
+        )
+        recordPath = fixture.rootDir + "/curl-invocations.log"
+        try! makeFakeCurl(atDirectory: fixture.fakeBinDir, recordingTo: recordPath)
+    }
+
+    override func tearDown() {
+        if let fixture { try? FileManager.default.removeItem(atPath: fixture.rootDir) }
+        fixture = nil
+        recordPath = nil
+        super.tearDown()
+    }
+
+    // MARK: - Helpers
+
+    private func curlInvocationCount() -> Int {
+        guard let text = try? String(contentsOfFile: recordPath, encoding: .utf8) else { return 0 }
+        return text.split(separator: "\n").count
+    }
+
+    /// Runs the installed `termifier-agent-hook` script via the shared
+    /// `FakeCurlScriptFixture` harness (see FakeCurlScriptFixture.swift),
+    /// discarding its stdout -- every assertion in this file is about
+    /// curl's INVOCATION count, never the printed response body.
+    @discardableResult
+    private func runHookScript(stdinJSON: String, extraEnv: [String: String]) throws -> Int32 {
+        try runFakeCurlHookScript(fixture, stdinJSON: stdinJSON, extraEnv: extraEnv).exitCode
+    }
+
+    private let sampleStdin = """
+    {"session_id":"herdr-guard-session","cwd":"/Users/dev/repo","hook_event_name":"SessionStart"}
+    """
+
+    // MARK: - Baseline sanity (harness proof, not the guard itself)
+
+    func test_baseline_surfaceIDSetNoHerdrVar_curlIsInvokedExactlyOnce() throws {
+        let exitCode = try runHookScript(
+            stdinJSON: sampleStdin,
+            extraEnv: ["TERMIFIER_SURFACE_ID": UUID().uuidString]
+        )
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(curlInvocationCount(), 1,
+                       "Precondition for every test below: with no HERDR_* variable present, the script " +
+                       "must still reach and invoke curl exactly once -- proves the fake-curl harness " +
+                       "itself works, so the zero-invocation assertions elsewhere in this file aren't " +
+                       "silently vacuous")
+    }
+
+    // MARK: - HERDR_* guard
+
+    func test_surfaceIDSet_herdrPaneIDSet_exitsZeroWithoutInvokingCurl() throws {
+        let exitCode = try runHookScript(
+            stdinJSON: sampleStdin,
+            extraEnv: ["TERMIFIER_SURFACE_ID": UUID().uuidString, "HERDR_PANE_ID": "w1:p1"]
+        )
+
+        XCTAssertEqual(exitCode, 0, "Even inside a herdr pane, the script must still exit 0")
+        XCTAssertEqual(curlInvocationCount(), 0,
+                       "HERDR_PANE_ID present must suppress the POST entirely -- a herdr-spawned shell " +
+                       "can inherit a stale TERMIFIER_SURFACE_ID from the pane herdr's own server was " +
+                       "started in, and must never misattribute an /agent-event to it")
+    }
+
+    func test_sessionIDSetInsteadOfSurfaceID_herdrPaneIDSet_exitsZeroWithoutInvokingCurl() throws {
+        let exitCode = try runHookScript(
+            stdinJSON: sampleStdin,
+            extraEnv: ["TERMIFIER_SESSION_ID": "01ARZ3NDEKTSV4RRFFQ69G5FAV", "HERDR_PANE_ID": "w1:p1"]
+        )
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(curlInvocationCount(), 0,
+                       "The HERDR_PANE_ID guard must apply regardless of which TERMIFIER_* variable is what's " +
+                       "set -- TERMIFIER_SESSION_ID alone, without TERMIFIER_SURFACE_ID, is a real " +
+                       "persistent-session pane shape (see AgentHookScriptSessionIDPipelineTests)")
+    }
+
+    // MARK: - HERDR_PANE_ID must be set AND non-empty
+
+    func test_surfaceIDSet_herdrPaneIDSetToEmptyString_stillInvokesCurl() throws {
+        let exitCode = try runHookScript(
+            stdinJSON: sampleStdin,
+            extraEnv: ["TERMIFIER_SURFACE_ID": UUID().uuidString, "HERDR_PANE_ID": ""]
+        )
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(curlInvocationCount(), 1,
+                       "HERDR_PANE_ID present in the environment but set to an empty value must NOT trip " +
+                       "the guard -- the condition is \"set AND non-empty\", not merely \"the name exists\"")
+    }
+
+    // MARK: - Other HERDR_*-prefixed variables must NOT suppress on their own
+
+    func test_surfaceIDSet_herdrSocketPathSetWithoutPaneID_stillInvokesCurl() throws {
+        let exitCode = try runHookScript(
+            stdinJSON: sampleStdin,
+            extraEnv: ["TERMIFIER_SURFACE_ID": UUID().uuidString, "HERDR_SOCKET_PATH": "/Users/dev/.config/herdr/herdr.sock"]
+        )
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(curlInvocationCount(), 1,
+                       "HERDR_SOCKET_PATH alone, without HERDR_PANE_ID, must NOT suppress the POST -- it " +
+                       "is user-facing configuration a person may export in their own shell profile to " +
+                       "select a herdr session by default, from inside an ORDINARY Termifier pane herdr never " +
+                       "touched, and must never cost that pane its agent monitoring")
+    }
+
+    func test_surfaceIDSet_herdrEnvSetWithoutPaneID_stillInvokesCurl() throws {
+        let exitCode = try runHookScript(
+            stdinJSON: sampleStdin,
+            extraEnv: ["TERMIFIER_SURFACE_ID": UUID().uuidString, "HERDR_ENV": "1"]
+        )
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(curlInvocationCount(), 1,
+                       "HERDR_ENV alone, without HERDR_PANE_ID, must NOT suppress the POST either -- only " +
+                       "HERDR_PANE_ID is a reliable \"this shell is herdr-managed\" signal, not any other " +
+                       "HERDR_*-prefixed variable herdr happens to also set")
+    }
+
+    // MARK: - Residual regression guards
+
+    func test_surfaceIDSet_nonUnderscoreTerminatedHerdrPrefixVariable_stillInvokesCurl() throws {
+        let exitCode = try runHookScript(
+            stdinJSON: sampleStdin,
+            extraEnv: ["TERMIFIER_SURFACE_ID": UUID().uuidString, "HERDRX_FOO": "1"]
+        )
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(curlInvocationCount(), 1,
+                       "HERDRX_FOO (a name that merely starts with the letters HERDR, not HERDR_PANE_ID " +
+                       "itself) must NOT trip the guard -- curl must still be invoked")
+    }
+
+    func test_surfaceIDSet_unrelatedVariableValueContainsNewlineFollowedByHerdrLookingLine_stillInvokesCurl() throws {
+        let exitCode = try runHookScript(
+            stdinJSON: sampleStdin,
+            extraEnv: [
+                "TERMIFIER_SURFACE_ID": UUID().uuidString,
+                "SOME_UNRELATED_VAR": "first-line\nHERDR_PANE_ID=w9:p9",
+            ]
+        )
+
+        XCTAssertEqual(exitCode, 0)
+        XCTAssertEqual(curlInvocationCount(), 1,
+                       "An unrelated variable's VALUE containing an embedded newline followed by text " +
+                       "shaped like a HERDR_PANE_ID assignment must never influence the guard -- the " +
+                       "guard reads the shell's own $HERDR_PANE_ID parameter directly, which stays unset " +
+                       "here regardless of what any other variable's value happens to contain, so curl " +
+                       "must still be invoked")
+    }
+}

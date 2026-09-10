@@ -1,0 +1,51 @@
+//
+//  TermifierCLI.swift
+//  TermifierCLI
+//
+//  Entry point for the Termifier command-line tool.
+//
+
+import ArgumentParser
+
+@main
+struct TermifierCLI: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "termifier",
+        abstract: "Termifier terminal CLI",
+        subcommands: [BrowserCommand.self]
+    )
+}
+
+struct BrowserCommand: ParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "browser",
+        abstract: "Browser automation commands",
+        subcommands: [
+            BrowserList.self,
+            BrowserOpen.self,
+            BrowserNavigate.self,
+            BrowserSnapshot.self,
+            BrowserScreenshot.self,
+            BrowserClick.self,
+            BrowserFill.self,
+            BrowserType.self,
+            BrowserPress.self,
+            BrowserSelect.self,
+            BrowserCheck.self,
+            BrowserUncheck.self,
+            BrowserGetText.self,
+            BrowserGetHTML.self,
+            BrowserEval.self,
+            BrowserWait.self,
+            BrowserBack.self,
+            BrowserForward.self,
+            BrowserReload.self,
+            BrowserGetAttribute.self,
+            BrowserGetLinks.self,
+            BrowserGetInputs.self,
+            BrowserIsVisible.self,
+            BrowserHover.self,
+            BrowserScroll.self,
+        ]
+    )
+}
