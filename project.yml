@@ -163,6 +163,7 @@ targets:
       - sdk: Carbon.framework
       - sdk: WebKit.framework
       - sdk: UserNotifications.framework
+      - sdk: Security.framework
       - target: TermifierCLI
         embed: false
 

@@ -15,6 +15,23 @@ Termifier is a fork of [Yuuichi Eguchi's Calyx](https://github.com/yuuichieguchi
 - MCP tools for terminal control, agent communication, command history, and LSP features
 - Scriptable browser tabs and a bundled `termifier` CLI
 
+## Features added in this fork
+
+In addition to the Termifier rebrand, this fork includes:
+
+- A custom Termifier app icon and removal of the Sparkle updater.
+- An SSH sidebar next to Tabs, Changes, and Agents for saved server profiles.
+- Password authentication stored in the macOS Keychain, with connection metadata kept locally.
+- Identity-file authentication for `.pem` and other SSH keys, including a file picker.
+- Editable SSH profiles with password preservation when the password field is left blank.
+- One-click connection opening in a new terminal tab with a standard `xterm-256color` environment for Linux compatibility.
+
+### SSH sessions
+
+Click **SSH** in the sidebar to add or edit a connection. Choose Password or Identity File authentication, then click a saved profile to open it as a terminal tab automatically.
+
+![SSH session opened in Termifier](docs/ssh-session.png)
+
 ## Requirements
 
 - macOS 26 Tahoe or later

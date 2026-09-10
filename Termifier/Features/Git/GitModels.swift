@@ -6,12 +6,13 @@
 import Foundation
 
 // TODO: Move `SidebarMode` to a neutral location (e.g. Features/Sidebar/SidebarModels.swift).
-// It is used by tabs, git-changes, and the AI-agent status view, so it no longer
+// It is used by tabs, git-changes, SSH, and the AI-agent status view, so it no longer
 // belongs to the git domain — it just lives here for historical reasons.
 enum SidebarMode: Sendable {
     case tabs
     case changes
     case agents
+    case ssh
 }
 
 enum GitChangesState: Sendable, Equatable {

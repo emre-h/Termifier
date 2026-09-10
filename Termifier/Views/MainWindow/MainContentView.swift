@@ -44,6 +44,7 @@ struct MainContentView: View {
     var onToggleGitRepoSection: ((String) -> Void)?
     var onRetryGitRepoSection: ((String) -> Void)?
     var onSelectRefFilter: ((String, GitRefSelection) -> Void)?
+    var onSSHConnectionSelected: ((SSHConnection) -> Void)?
     var onSidebarWidthChanged: ((CGFloat) -> Void)?
     var onCollapseToggled: (() -> Void)?
     var onCloseAllTabsInGroup: ((UUID) -> Void)?
@@ -151,6 +152,7 @@ struct MainContentView: View {
                         onToggleGitRepoSection: onToggleGitRepoSection,
                         onRetryGitRepoSection: onRetryGitRepoSection,
                         onSelectRefFilter: onSelectRefFilter,
+                        onSSHConnectionSelected: onSSHConnectionSelected,
                         onMoveTab: onMoveTab,
                         paneTitle: paneTitle,
                         paneCwd: paneCwd

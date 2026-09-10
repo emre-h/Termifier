@@ -1408,6 +1408,9 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
             onSelectRefFilter: { [weak self] repoID, selection in
                 self?.setGitRefSelection(repoID: repoID, selection: selection)
             },
+            onSSHConnectionSelected: { [weak self] connection in
+                self?.openSSHConnection(connection)
+            },
             onSidebarWidthChanged: { [weak self] width in self?.windowSession.sidebarWidth = width },
             onCollapseToggled: { [weak self] in self?.requestSave() },
             onCloseAllTabsInGroup: { [weak self] groupID in self?.closeAllTabsInGroup(id: groupID) },
@@ -1595,6 +1598,69 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
     func createNewTab(inheritedConfig: Any? = nil, host: String? = nil, spawnCwd: String? = nil) {
         guard let app = GhosttyAppController.shared.app else { return }
         performCreateNewTab(app: app, inheritedConfig: inheritedConfig, host: host, spawnCwd: spawnCwd)
+    }
+
+    /// Opens a saved SSH profile as a direct terminal command and switches
+    /// the sidebar back to Tabs so the new tab is immediately visible.
+    func openSSHConnection(_ connection: SSHConnection) {
+        let askPassPath: String?
+        do {
+            askPassPath = connection.authentication == .password
+                ? try SSHAskPassInstaller.install()
+                : nil
+        } catch {
+            presentSSHConnectionError(error.localizedDescription)
+            return
+        }
+
+        let command = SSHCommandBuilder.command(for: connection, askPassPath: askPassPath)
+        guard createCommandTab(command: command, title: connection.name) else {
+            presentSSHConnectionError("Could not create a terminal surface for this connection.")
+            return
+        }
+        setSidebarMode(.tabs)
+        refreshHostingView()
+    }
+
+    @discardableResult
+    private func createCommandTab(command: String, title: String) -> Bool {
+        guard let app = GhosttyAppController.shared.app,
+              let window,
+              let group = windowSession.activeGroup else { return false }
+
+        let tab = Tab(title: title, titleOverride: title)
+        var config = GhosttyFFI.surfaceConfigNew()
+        config.scale_factor = Double(window.backingScaleFactor)
+        guard let surfaceID = tab.registry.createSurface(
+            app: app,
+            config: config,
+            pwd: nil,
+            command: command
+        ) else { return false }
+
+        tab.splitTree = SplitTree(leafID: surfaceID)
+        activeTab?.registry.pauseAll()
+        group.addTab(tab)
+        group.activeTabID = tab.id
+        rebuildSplitContainer()
+        updateLayout()
+        refreshHostingView()
+        restoreFocus()
+        retargetComposeOverlayIfNeeded()
+        requestSave()
+        return true
+    }
+
+    private func presentSSHConnectionError(_ message: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "SSH Connection Failed"
+        alert.informativeText = message
+        if let window {
+            alert.beginSheetModal(for: window)
+        } else {
+            alert.runModal()
+        }
     }
 
     /// `createNewTab`'s body, taking `app` directly instead of resolving
@@ -3561,8 +3627,8 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
     /// .showSidebar && !group.isCollapsed`: `SidebarContentView`'s
     /// group/tab tree (where `TabRowItemView` lives) only renders inside
     /// `switch sidebarMode { case .tabs: ... }` — while `sidebarMode` is
-    /// `.changes` or `.agents`, the sidebar shows `GitChangesView`/
-    /// `AgentStatusView` instead, and no `TabRowItemView` exists for `tab`
+    /// `.changes`, `.agents`, or `.ssh`, the sidebar shows other content
+    /// instead, and no `TabRowItemView` exists for `tab`
     /// at all regardless of `showSidebar`/`isCollapsed`. Every current
     /// caller reaches this method for the keybind-focused surface, which
     /// is always the active group's active tab (so it always resolves via

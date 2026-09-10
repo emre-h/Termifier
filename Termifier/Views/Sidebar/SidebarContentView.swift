@@ -33,6 +33,7 @@ struct SidebarContentView: View {
     var onToggleGitRepoSection: ((String) -> Void)?
     var onRetryGitRepoSection: ((String) -> Void)?
     var onSelectRefFilter: ((String, GitRefSelection) -> Void)?
+    var onSSHConnectionSelected: ((SSHConnection) -> Void)?
     var onMoveTab: ((UUID, Int, Int) -> Void)?
     var paneTitle: (UUID) -> String?
     var paneCwd: (UUID) -> String?
@@ -40,6 +41,7 @@ struct SidebarContentView: View {
     @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
     @Environment(\.controlActiveState) private var controlActiveState
     @Namespace private var togglePillNS
+    @State private var sshStore = SSHConnectionStore.shared
 
     @ViewBuilder
     private var togglePill: some View {
@@ -137,6 +139,32 @@ struct SidebarContentView: View {
                 .accessibilityLabel("Agents")
                 .accessibilityAddTraits(sidebarMode == .agents ? [.isSelected] : [])
                 .accessibilityIdentifier(AccessibilityID.Sidebar.agentModeButton)
+
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        sidebarMode = .ssh
+                    }
+                } label: {
+                    Text("SSH")
+                        .font(.system(size: 12, weight: .medium, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                        .frame(maxWidth: .infinity)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background {
+                            if sidebarMode == .ssh {
+                                Color.clear
+                                    .overlay { togglePill }
+                                    .matchedGeometryEffect(id: "togglePill", in: togglePillNS)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("SSH")
+                .accessibilityAddTraits(sidebarMode == .ssh ? [.isSelected] : [])
             }
             .padding(.horizontal, 12)
             .padding(.top, 8)
@@ -148,6 +176,7 @@ struct SidebarContentView: View {
                 case .tabs: return "Tabs"
                 case .changes: return "Changes"
                 case .agents: return "Agents"
+                case .ssh: return "SSH"
                 }
             }())
             .accessibilityIdentifier(AccessibilityID.Git.modeToggle)
@@ -219,6 +248,12 @@ struct SidebarContentView: View {
             case .agents:
                 AgentStatusView(paneTitle: paneTitle, paneCwd: paneCwd)
                     .padding(.top, 10)
+
+            case .ssh:
+                SSHSidebarView(store: sshStore) { connection in
+                    onSSHConnectionSelected?(connection)
+                }
+                .padding(.top, 10)
             }
         }
         .frame(minWidth: SidebarLayout.minWidth)
