@@ -5,8 +5,7 @@ struct SSHSidebarView: View {
     @Bindable var store: SSHConnectionStore
     var onConnect: (SSHConnection) -> Void
 
-    @State private var showingEditor = false
-    @State private var editingConnection: SSHConnection?
+    @State private var editorTarget: SSHEditorTarget?
     @State private var errorMessage: String?
 
     var body: some View {
@@ -52,10 +51,10 @@ struct SSHSidebarView: View {
                                 .accessibilityLabel("Connect to \(connection.name)")
 
                                 Button {
-                                    editingConnection = connection
-                                    showingEditor = true
+                                    editorTarget = .edit(connection)
                                 } label: {
                                     Image(systemName: "pencil")
+                                        .font(.system(size: 12, weight: .bold))
                                         .frame(width: 24, height: 28)
                                         .contentShape(Rectangle())
                                 }
@@ -83,8 +82,7 @@ struct SSHSidebarView: View {
             Divider()
 
             Button {
-                editingConnection = nil
-                showingEditor = true
+                editorTarget = .add
             } label: {
                 Label("Add SSH Connection", systemImage: "plus")
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -96,8 +94,16 @@ struct SSHSidebarView: View {
             .padding(8)
             .accessibilityIdentifier("sidebar.ssh.addConnection")
         }
-        .sheet(isPresented: $showingEditor) {
-            SSHConnectionEditorView(store: store, connection: editingConnection)
+        // `sheet(item:)`, not `sheet(isPresented:)`: the editor seeds its
+        // `@State` fields from `connection` in its `init`, which SwiftUI
+        // runs only once per view identity. Keyed by the presented
+        // target's `id`, editing a second connection (or switching
+        // between Add and Edit) is a new identity, so those initial
+        // values are re-read instead of the first-presented connection's
+        // -- previously every Edit after the first showed stale/empty
+        // fields.
+        .sheet(item: $editorTarget) { target in
+            SSHConnectionEditorView(store: store, connection: target.connection)
         }
         .alert("SSH Connection Error", isPresented: errorBinding) {
             Button("OK", role: .cancel) { errorMessage = nil }
@@ -111,6 +117,30 @@ struct SSHSidebarView: View {
             get: { errorMessage != nil },
             set: { if !$0 { errorMessage = nil } }
         )
+    }
+}
+
+/// What the SSH connection editor sheet is currently presenting.
+/// `Identifiable` so `sheet(item:)` can key the sheet's view identity on
+/// it: `.add` and each `.edit` connection are distinct identities.
+private enum SSHEditorTarget: Identifiable {
+    case add
+    case edit(SSHConnection)
+
+    var id: String {
+        switch self {
+        case .add: "add"
+        case .edit(let connection): connection.id.uuidString
+        }
+    }
+
+    /// The connection being edited, or `nil` in `.add` mode -- exactly
+    /// the shape `SSHConnectionEditorView.init(store:connection:)` takes.
+    var connection: SSHConnection? {
+        switch self {
+        case .add: nil
+        case .edit(let connection): connection
+        }
     }
 }
 
