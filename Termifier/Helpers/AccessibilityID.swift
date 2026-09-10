@@ -34,6 +34,15 @@ enum AccessibilityID {
         static let color = "termifier.groupMenu.color"
         static func color(_ color: TabGroupColor) -> String { "termifier.groupMenu.color.\(color.rawValue)" }
     }
+    enum TerminalContextMenu {
+        static let copy = "termifier.terminalMenu.copy"
+        static let paste = "termifier.terminalMenu.paste"
+        static let selectAll = "termifier.terminalMenu.selectAll"
+        static let splitRight = "termifier.terminalMenu.splitRight"
+        static let splitLeft = "termifier.terminalMenu.splitLeft"
+        static let splitDown = "termifier.terminalMenu.splitDown"
+        static let splitUp = "termifier.terminalMenu.splitUp"
+    }
     enum TabBar {
         static let container = "termifier.tabBar"
         static let newTabButton = "termifier.tabBar.newTabButton"

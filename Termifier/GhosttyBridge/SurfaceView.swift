@@ -676,6 +676,36 @@ class SurfaceView: NSView {
         super.rightMouseDown(with: event)
     }
 
+    /// AppKit resolves a right-click's/Ctrl+click's context menu
+    /// through this override, called from `NSView.rightMouseDown(with:)`'s
+    /// default implementation -- which `rightMouseDown(with:)` above only
+    /// reaches (via `super`) when ghostty did NOT consume the press. That
+    /// existing gate is exactly the behavior this menu wants: a program
+    /// that has enabled mouse reporting (vim, tmux, htop) keeps receiving
+    /// the right button itself and shows no menu, unchanged from before
+    /// this override existed.
+    ///
+    /// Bound to `self`, not to the focused surface: right-clicking an
+    /// unfocused pane must copy from / split THAT pane. Every closure
+    /// below routes through this view's own "MARK: - Menu Actions"
+    /// `@IBAction`s, so the context menu and the main menu drive one
+    /// code path per action.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        TerminalContextMenu.make(
+            hasSelection: surfaceController?.hasSelection ?? false,
+            canPaste: TerminalContextMenu.canPaste(),
+            actions: TerminalContextMenu.Actions(
+                copy: { [weak self] in self?.copy(nil) },
+                paste: { [weak self] in self?.paste(nil) },
+                selectAll: { [weak self] in self?.selectAll(nil) },
+                splitRight: { [weak self] in guard let self else { return }; self.splitRight(self) },
+                splitLeft: { [weak self] in guard let self else { return }; self.splitLeft(self) },
+                splitDown: { [weak self] in guard let self else { return }; self.splitDown(self) },
+                splitUp: { [weak self] in guard let self else { return }; self.splitUp(self) }
+            )
+        )
+    }
+
     override func rightMouseUp(with event: NSEvent) {
         let mods = EventTranslator.translateModifiers(event.modifierFlags)
         if surfaceController?.sendMouseButton(
