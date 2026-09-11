@@ -259,6 +259,11 @@ extension Tab {
         switch content {
         case .diff:
             return nil  // Diff tabs are not persisted
+        case .files:
+            // Not persisted either, and for a stronger reason than the
+            // diff tab's: restoring one would re-authenticate to a remote
+            // host at launch, before the user has asked for anything.
+            return nil
         case .terminal:
             return TabSnapshot(id: id, title: title, titleOverride: titleOverride, pwd: pwd, splitTree: splitTree, browserURL: nil, sessionRefs: refs, herdrPaneRefs: herdrRefs)
         case .browser(let url):

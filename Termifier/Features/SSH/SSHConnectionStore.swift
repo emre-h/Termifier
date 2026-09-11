@@ -58,6 +58,44 @@ final class SSHConnectionStore {
         persist()
     }
 
+    /// Moves a profile into `folder` (empty string = ungrouped),
+    /// preserving its saved password: `update` treats a `nil` password on
+    /// an already-password profile as "keep what is in the Keychain".
+    func move(_ connection: SSHConnection, toFolder folder: String) throws {
+        var moved = connection
+        moved.folder = folder.trimmingCharacters(in: .whitespacesAndNewlines)
+        try update(moved, password: nil)
+    }
+
+    /// Named folders in use, case-insensitively sorted. The ungrouped
+    /// bucket is not a folder and is deliberately absent.
+    var folders: [String] {
+        let named = Set(connections.map(\.folder).filter { !$0.isEmpty })
+        return named.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    /// Appends imported profiles, skipping any that duplicate a saved
+    /// one, and returns how many were added.
+    ///
+    /// A candidate that fails to save does not abort the import: one bad
+    /// host in a long `~/.ssh/config` should cost the user that host, not
+    /// the whole batch. Imported profiles never carry a password (see
+    /// `SSHConfigImporter`), so `add`'s password path is never taken.
+    @discardableResult
+    func importConnections(_ candidates: [SSHConnection]) -> Int {
+        var imported = 0
+        for candidate in candidates {
+            guard !SSHConfigImporter.isAlreadySaved(candidate, in: connections) else { continue }
+            do {
+                try add(candidate, password: nil)
+                imported += 1
+            } catch {
+                continue
+            }
+        }
+        return imported
+    }
+
     func delete(_ connection: SSHConnection) throws {
         try credentialStore.deletePassword(for: connection.id)
         connections.removeAll { $0.id == connection.id }
