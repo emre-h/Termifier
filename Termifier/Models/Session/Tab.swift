@@ -9,6 +9,12 @@ enum TabContent: Sendable {
     case terminal
     case browser(url: URL)
     case diff(source: DiffSource)
+    /// Remote file browser for a saved SSH profile, identified by its
+    /// `SSHConnection.id`. The listing itself is live state owned by the
+    /// window controller's `SSHFileBrowserModel` for this tab, not by the
+    /// tab -- which is also why these tabs are not persisted (see
+    /// `Tab.snapshot(browserURLOverride:)`).
+    case files(connectionID: UUID)
 }
 
 /// Which of the two independent inline-rename UIs — `TabBarContentView`'s

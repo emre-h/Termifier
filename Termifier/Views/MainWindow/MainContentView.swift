@@ -12,6 +12,7 @@ struct MainContentView: View {
     let commandRegistry: CommandRegistry?
     let splitContainerView: SplitContainerView
     var activeBrowserController: BrowserTabController?
+    var activeFileBrowserModel: SSHFileBrowserModel?
     var activeDiffState: DiffLoadState?
     var activeDiffSource: DiffSource?
     var activeDiffReviewStore: DiffReviewStore?
@@ -45,6 +46,8 @@ struct MainContentView: View {
     var onRetryGitRepoSection: ((String) -> Void)?
     var onSelectRefFilter: ((String, GitRefSelection) -> Void)?
     var onSSHConnectionSelected: ((SSHConnection) -> Void)?
+    var onSSHTransferRequested: ((SSHTransferRequest) -> Void)?
+    var onSSHBrowseRequested: ((SSHConnection) -> Void)?
     var onSidebarWidthChanged: ((CGFloat) -> Void)?
     var onCollapseToggled: (() -> Void)?
     var onCloseAllTabsInGroup: ((UUID) -> Void)?
@@ -153,6 +156,8 @@ struct MainContentView: View {
                         onRetryGitRepoSection: onRetryGitRepoSection,
                         onSelectRefFilter: onSelectRefFilter,
                         onSSHConnectionSelected: onSSHConnectionSelected,
+                        onSSHTransferRequested: onSSHTransferRequested,
+                        onSSHBrowseRequested: onSSHBrowseRequested,
                         onMoveTab: onMoveTab,
                         paneTitle: paneTitle,
                         paneCwd: paneCwd
@@ -230,6 +235,9 @@ struct MainContentView: View {
                             .accessibilityIdentifier(AccessibilityID.Diff.container)
                         } else if let browserController = activeBrowserController {
                             BrowserContainerView(controller: browserController)
+                        } else if let fileBrowserModel = activeFileBrowserModel {
+                            SSHFileBrowserView(model: fileBrowserModel)
+                                .accessibilityIdentifier("ssh.browser.container")
                         } else {
                             VStack(spacing: 0) {
                                 TerminalContainerView(

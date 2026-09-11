@@ -34,6 +34,8 @@ struct SidebarContentView: View {
     var onRetryGitRepoSection: ((String) -> Void)?
     var onSelectRefFilter: ((String, GitRefSelection) -> Void)?
     var onSSHConnectionSelected: ((SSHConnection) -> Void)?
+    var onSSHTransferRequested: ((SSHTransferRequest) -> Void)?
+    var onSSHBrowseRequested: ((SSHConnection) -> Void)?
     var onMoveTab: ((UUID, Int, Int) -> Void)?
     var paneTitle: (UUID) -> String?
     var paneCwd: (UUID) -> String?
@@ -250,9 +252,12 @@ struct SidebarContentView: View {
                     .padding(.top, 10)
 
             case .ssh:
-                SSHSidebarView(store: sshStore) { connection in
-                    onSSHConnectionSelected?(connection)
-                }
+                SSHSidebarView(
+                    store: sshStore,
+                    onConnect: { connection in onSSHConnectionSelected?(connection) },
+                    onTransfer: { request in onSSHTransferRequested?(request) },
+                    onBrowse: { connection in onSSHBrowseRequested?(connection) }
+                )
                 .padding(.top, 10)
             }
         }
@@ -657,6 +662,7 @@ private struct TabRowItemView: View {
         case .terminal: "terminal"
         case .browser: "globe"
         case .diff: "doc.text"
+        case .files: "folder"
         }
     }
 

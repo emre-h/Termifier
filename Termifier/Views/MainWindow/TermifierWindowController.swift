@@ -176,6 +176,8 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
     /// needs to touch this property.
     var clipboardWriter: ClipboardWriting = SystemClipboardWriter()
     private var browserControllers: [UUID: BrowserTabController] = [:]
+    /// Remote file browsers, keyed by the `.files` tab showing them.
+    private var fileBrowserModels: [UUID: SSHFileBrowserModel] = [:]
     private var diffStates: [UUID: DiffLoadState] = [:]
     private var diffTasks = KeyedTaskRegistry<UUID>()
     /// Repository discovery for the Changes sidebar. One at a time: a new
@@ -550,6 +552,11 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
 
     var activeBrowserControllerForExternal: BrowserTabController? {
         activeBrowserController
+    }
+
+    private var activeFileBrowserModel: SSHFileBrowserModel? {
+        guard let tab = activeTab, case .files = tab.content else { return nil }
+        return fileBrowserModels[tab.id]
     }
 
     private var activeDiffState: DiffLoadState? {
@@ -1368,6 +1375,7 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
             commandRegistry: commandRegistry,
             splitContainerView: splitContainerView ?? SplitContainerView(registry: SurfaceRegistry()),
             activeBrowserController: activeBrowserController,
+            activeFileBrowserModel: activeFileBrowserModel,
             activeDiffState: activeDiffState,
             activeDiffSource: activeDiffSource,
             activeDiffReviewStore: activeDiffReviewStore,
@@ -1410,6 +1418,12 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
             },
             onSSHConnectionSelected: { [weak self] connection in
                 self?.openSSHConnection(connection)
+            },
+            onSSHTransferRequested: { [weak self] request in
+                self?.runSSHTransfer(request)
+            },
+            onSSHBrowseRequested: { [weak self] connection in
+                self?.openSSHFileBrowser(connection)
             },
             onSidebarWidthChanged: { [weak self] width in self?.windowSession.sidebarWidth = width },
             onCollapseToggled: { [weak self] in self?.requestSave() },
@@ -1555,6 +1569,11 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
             }
         case .diff:
             break  // Diff tabs don't need special activation
+        case .files:
+            // The file browser is SwiftUI inside the hosting view; the
+            // refresh above is all it needs, and its own `.task` reloads
+            // the listing.
+            break
         }
         retargetComposeOverlayIfNeeded()
         if isGitChangesSidebarVisible {
@@ -1616,6 +1635,147 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
         let command = SSHCommandBuilder.command(for: connection, askPassPath: askPassPath)
         guard createCommandTab(command: command, title: connection.name) else {
             presentSSHConnectionError("Could not create a terminal surface for this connection.")
+            return
+        }
+        setSidebarMode(.tabs)
+        refreshHostingView()
+    }
+
+    /// Opens the remote file browser for a saved profile as a tab in this
+    /// window, beside the terminal and browser tabs -- or activates the
+    /// tab already showing that profile, so repeatedly clicking the folder
+    /// button cannot pile up duplicates of the same listing.
+    ///
+    /// Uploads and downloads started there come back through
+    /// `runSSHTransfer(_:)` below, so there is exactly one path in the app
+    /// that moves files: scp in a terminal tab, with its progress meter.
+    func openSSHFileBrowser(_ connection: SSHConnection) {
+        guard let group = windowSession.activeGroup else { return }
+
+        if let existing = existingFilesTab(for: connection.id) {
+            deactivateCurrentTab()
+            windowSession.activeGroupID = existing.group.id
+            existing.group.activeTabID = existing.tab.id
+            setSidebarMode(.tabs)
+            rebuildSplitContainer()
+            updateLayout()
+            refreshHostingView()
+            return
+        }
+
+        // A password profile needs the askpass helper on disk before sftp
+        // runs, exactly as its interactive session does.
+        let askPassPath: String?
+        if connection.authentication == .password {
+            do {
+                askPassPath = try SSHAskPassInstaller.install()
+            } catch {
+                presentSSHConnectionError(error.localizedDescription)
+                return
+            }
+        } else {
+            askPassPath = nil
+        }
+
+        let title = "Files — \(connection.name)"
+        let tab = Tab(
+            title: title,
+            titleOverride: title,
+            content: .files(connectionID: connection.id)
+        )
+        let model = SSHFileBrowserModel(
+            connection: connection,
+            operations: SFTPService(connection: connection, askPassPath: askPassPath)
+        )
+        model.onDownload = { [weak self] entry in
+            self?.promptSSHDownload(entry, connection: connection)
+        }
+        model.onUpload = { [weak self] localPaths, remoteDirectory in
+            self?.runSSHTransfer(
+                .upload(
+                    connection: connection,
+                    localPaths: localPaths,
+                    remoteDirectory: remoteDirectory
+                )
+            )
+        }
+        fileBrowserModels[tab.id] = model
+
+        deactivateCurrentTab()
+        group.addTab(tab)
+        group.activeTabID = tab.id
+
+        setSidebarMode(.tabs)
+        rebuildSplitContainer()
+        updateLayout()
+        refreshHostingView()
+        requestSave()
+    }
+
+    /// The tab already browsing `connectionID`, anywhere in this window.
+    private func existingFilesTab(for connectionID: UUID) -> (group: TabGroup, tab: Tab)? {
+        for group in windowSession.groups {
+            for tab in group.tabs {
+                if case .files(let id) = tab.content, id == connectionID {
+                    return (group, tab)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// Asks where to save, then downloads through the same scp transfer
+    /// the sidebar uses.
+    private func promptSSHDownload(_ entry: SFTPEntry, connection: SSHConnection) {
+        let panel = NSOpenPanel()
+        panel.title = "Download \(entry.name)"
+        panel.prompt = "Download"
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = FileManager.default
+            .urls(for: .downloadsDirectory, in: .userDomainMask).first
+        guard panel.runModal() == .OK, let destination = panel.url else { return }
+        runSSHTransfer(
+            .download(
+                connection: connection,
+                remotePath: entry.path,
+                localDirectory: destination.path
+            )
+        )
+    }
+
+    /// Runs one scp upload/download for a saved profile in its own
+    /// terminal tab.
+    ///
+    /// A tab, not a hidden subprocess: scp's progress meter, its
+    /// host-key prompt and -- for password profiles -- the same
+    /// Keychain-backed askpass helper the interactive session uses all
+    /// need a terminal to talk to.
+    func runSSHTransfer(_ request: SSHTransferRequest) {
+        let askPassPath: String?
+        do {
+            askPassPath = request.connection.authentication == .password
+                ? try SSHAskPassInstaller.install()
+                : nil
+        } catch {
+            presentSSHConnectionError(error.localizedDescription)
+            return
+        }
+
+        let command: String
+        do {
+            command = try SSHTransferCommandBuilder.command(
+                for: request,
+                askPassPath: askPassPath
+            )
+        } catch {
+            presentSSHConnectionError(error.localizedDescription)
+            return
+        }
+
+        guard createCommandTab(command: command, title: request.tabTitle) else {
+            presentSSHConnectionError("Could not create a terminal surface for this transfer.")
             return
         }
         setSidebarMode(.tabs)
@@ -2038,6 +2198,7 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
     /// Shared by every tab-closing path.
     private func releaseTabResources(_ tab: Tab) {
         browserControllers.removeValue(forKey: tab.id)
+        fileBrowserModels.removeValue(forKey: tab.id)
         diffTasks[tab.id]?.cancel()
         diffTasks.removeValue(forKey: tab.id)
         diffStates.removeValue(forKey: tab.id)
@@ -2256,7 +2417,7 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
             if let bv = activeBrowserController?.browserView {
                 window?.makeFirstResponder(bv)
             }
-        case .diff:
+        case .diff, .files:
             break
         }
     }
@@ -5022,6 +5183,7 @@ class TermifierWindowController: NSWindowController, NSWindowDelegate {
         }
 
         browserControllers.removeAll()
+        fileBrowserModels.removeAll()
 
         diffTasks.cancelAll()
         diffStates.removeAll()
